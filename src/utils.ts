@@ -14,7 +14,14 @@ export function formatDateTime(value: string | number, language: AppLanguage): s
 }
 
 export function safeFilename(value: string, language: AppLanguage = "en"): string {
-  const cleaned = (value || defaultTitle(language)).replace(/[][\\/:*?"<>|#^]+/g, "-").replace(/\s+/g, " ").trim();
+  const cleaned = (value || defaultTitle(language))
+    .replace(/[\\/:*?"<>|#^]+/g, "-")
+    .split("[")
+    .join("-")
+    .split("]")
+    .join("-")
+    .replace(/\s+/g, " ")
+    .trim();
   return cleaned.slice(0, 90) || defaultTitle(language);
 }
 

@@ -1050,7 +1050,7 @@ function ollamaMessageContent(value: unknown): unknown {
 function openAIChoiceContent(value: unknown): unknown {
   if (!isRecord(value)) return undefined;
   const choices = value.choices;
-  if (!Array.isArray(choices)) return undefined;
+  if (!isUnknownArray(choices)) return undefined;
   const first = choices[0];
   if (!isRecord(first)) return undefined;
   const message = first.message;
@@ -1059,4 +1059,8 @@ function openAIChoiceContent(value: unknown): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
 }

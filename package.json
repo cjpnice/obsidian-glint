@@ -1,6 +1,6 @@
 {
   "name": "glint-capture-organizer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Desktop plugin for reading Shortcuts captures, organizing them, and writing Markdown.",
   "main": "main.js",
