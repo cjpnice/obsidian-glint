@@ -1,0 +1,20 @@
+{
+  "name": "glint-capture-organizer",
+  "version": "0.1.17",
+  "private": true,
+  "description": "Obsidian desktop plugin for reading Shortcuts captures, organizing them, and writing Markdown.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit && node esbuild.config.mjs production",
+    "check:release": "npm run build && node scripts/check-release.mjs",
+    "package": "npm run check:release && node scripts/package-release.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.21.5",
+    "obsidian": "^1.8.7",
+    "typescript": "^5.5.3"
+  }
+}
