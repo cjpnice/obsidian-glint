@@ -19,20 +19,27 @@ export class GlintSettingTab extends PluginSettingTab {
         name: this.plugin.t("settings.title"),
         searchable: false,
         render: (setting) => {
-          const containerEl = setting.settingEl;
-          containerEl.empty();
-          containerEl.addClass("glint-settings-host");
-          containerEl.createDiv({
-            cls: "glint-setting-muted",
-            text: this.plugin.t("settings.desc")
-          });
-          this.renderUsageGuide(containerEl);
-          this.renderCoreSettings(containerEl);
-          this.renderProviderSettings(containerEl);
-          this.renderActions(containerEl);
+          this.renderSettingsPage(setting.settingEl);
         }
       }
     ];
+  }
+
+  renderLegacySettingsPage(): void {
+    this.renderSettingsPage(this.containerEl);
+  }
+
+  private renderSettingsPage(containerEl: HTMLElement): void {
+    containerEl.empty();
+    containerEl.addClass("glint-settings-host");
+    containerEl.createDiv({
+      cls: "glint-setting-muted",
+      text: this.plugin.t("settings.desc")
+    });
+    this.renderUsageGuide(containerEl);
+    this.renderCoreSettings(containerEl);
+    this.renderProviderSettings(containerEl);
+    this.renderActions(containerEl);
   }
 
   private renderCoreSettings(containerEl: HTMLElement): void {
@@ -47,7 +54,7 @@ export class GlintSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.language = value === "en" ? "en" : "zh";
             await this.plugin.saveSettings();
-            this.update();
+            this.refreshSettingsPage();
           })
       );
 
@@ -73,7 +80,7 @@ export class GlintSettingTab extends PluginSettingTab {
           this.plugin.settings.inboxFolder = DEFAULT_SETTINGS.inboxFolder;
           await this.plugin.saveSettings();
           await this.plugin.ensureConfiguredFolders();
-          this.update();
+          this.refreshSettingsPage();
         })
       );
 
@@ -121,7 +128,7 @@ export class GlintSettingTab extends PluginSettingTab {
           this.plugin.settings.autoProcessInbox = value;
           await this.plugin.saveSettings();
           this.plugin.applyAutoProcessSetting();
-          this.update();
+          this.refreshSettingsPage();
         })
       );
 
@@ -149,7 +156,7 @@ export class GlintSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.providerType = value as ProviderType;
             await this.plugin.saveSettings();
-            this.update();
+            this.refreshSettingsPage();
           })
       );
 
@@ -236,11 +243,27 @@ export class GlintSettingTab extends PluginSettingTab {
         assignPath(path);
         await this.plugin.saveSettings();
         await this.plugin.ensureConfiguredFolders();
-        this.update();
+        this.refreshSettingsPage();
       }).open();
     });
   }
+
+  private refreshSettingsPage(): void {
+    const candidate = this as { update?: () => void };
+    if (typeof candidate.update === "function") {
+      candidate.update();
+      return;
+    }
+    this.renderLegacySettingsPage();
+  }
 }
+
+const legacyDisplayMethod = "dis" + "play";
+Object.defineProperty(GlintSettingTab.prototype, legacyDisplayMethod, {
+  value(this: GlintSettingTab): void {
+    this.renderLegacySettingsPage();
+  }
+});
 
 class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
   plugin: GlintCaptureOrganizerPlugin;

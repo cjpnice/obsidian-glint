@@ -121,8 +121,8 @@ This validates the manifest, `versions.json`, required release files, and then c
 ## Official submission checklist
 
 - Commit `README.md`, `LICENSE`, `manifest.json`, `versions.json`, source files, and package files to GitHub.
-- Create a GitHub release whose tag exactly matches the `version` in `manifest.json`, for example `0.2.3`.
+- Create a GitHub release whose tag exactly matches the `version` in `manifest.json`, for example `0.2.4`.
 - Upload `main.js`, `manifest.json`, and `styles.css` from the project root as release assets.
 - Submit the GitHub repository URL at <https://community.obsidian.md>.
 
-If GitHub Actions is enabled, pushing a tag like `0.2.3` automatically builds the plugin and uploads the required release assets.
+If GitHub Actions is enabled, pushing a tag like `0.2.4` automatically builds the plugin and uploads the required release assets.
