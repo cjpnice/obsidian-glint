@@ -94,21 +94,34 @@ export function parseAnalysisJSON(
   try {
     const start = content.indexOf("{");
     const end = content.lastIndexOf("}");
-    const json = JSON.parse(start >= 0 && end >= start ? content.slice(start, end + 1) : content);
+    const parsed: unknown = JSON.parse(start >= 0 && end >= start ? content.slice(start, end + 1) : content);
+    if (!isRecord(parsed)) return null;
     return {
-      title: stringValue(json.title || json.generatedTitle),
-      summary: stringValue(json.summary),
-      keyPoints: stringArray(json.keyPoints || json.key_points || json.keypoints),
-      note: sanitizeAnalysisNote(stringValue(json.note || json.body || json.markdown || json.markdownBody)),
-      tags: stringArray(json.tags),
-      category: stringValue(json.category) || defaultCategory(language),
-      entities: stringArray(json.entities || json.namedEntities || json.named_entities),
+      title: stringValue(firstValue(parsed, ["title", "generatedTitle"])),
+      summary: stringValue(parsed.summary),
+      keyPoints: stringArray(firstValue(parsed, ["keyPoints", "key_points", "keypoints"])),
+      note: sanitizeAnalysisNote(stringValue(firstValue(parsed, ["note", "body", "markdown", "markdownBody"]))),
+      tags: stringArray(parsed.tags),
+      category: stringValue(parsed.category) || defaultCategory(language),
+      entities: stringArray(firstValue(parsed, ["entities", "namedEntities", "named_entities"])),
       providerName,
       modelName
     };
   } catch {
     return null;
   }
+}
+
+function firstValue(record: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export function localStructuredNote(summary: string, keyPoints: string[], language: AppLanguage): string {

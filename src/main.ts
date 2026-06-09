@@ -191,7 +191,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     const leaf = existingLeaf ?? this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: VIEW_TYPE_GLINT_INBOX_STATUS, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    this.app.workspace.setActiveLeaf(leaf, { focus: true });
   }
 
   refreshInboxStatusViews(delayMs = 100): void {
@@ -313,7 +313,10 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
         if (!view?.file) throw new Error(this.t("notice.openNoteFirst"));
 
         const cache = this.app.metadataCache.getFileCache(view.file);
-        const captureId = String(cache?.frontmatter?.capture_id || cache?.frontmatter?.glint_id || "").trim();
+        const frontmatter: unknown = cache?.frontmatter;
+        const captureId = String(
+          frontmatterRecordValue(frontmatter, "capture_id") || frontmatterRecordValue(frontmatter, "glint_id") || ""
+        ).trim();
         if (!captureId) throw new Error(this.t("notice.noGlintNote"));
 
         const source = await this.findCaptureById(captureId);
@@ -323,9 +326,10 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
         } else {
           new Notice(this.t("notice.captureSourceNotFound"));
           const raw = await this.app.vault.cachedRead(view.file);
-          const frontmatter = cache?.frontmatter;
-          const sourceURL = typeof frontmatter?.source === "string" ? frontmatter.source : undefined;
-          const captured = typeof frontmatter?.captured === "string" ? frontmatter.captured : new Date().toISOString();
+          const source = frontmatterRecordValue(frontmatter, "source");
+          const capturedAt = frontmatterRecordValue(frontmatter, "captured");
+          const sourceURL = typeof source === "string" ? source : undefined;
+          const captured = typeof capturedAt === "string" ? capturedAt : new Date().toISOString();
           await this.processCapture({
             id: captureId,
             title: view.file.basename,
@@ -689,7 +693,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
         }
       });
       return extractReadableTextFromHTML(response.text);
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -724,9 +728,9 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
           ]
         })
       });
-      const content = response.json?.message?.content;
+      const content = ollamaMessageContent(response.json as unknown);
       return typeof content === "string" ? parseAnalysisJSON(content, "Ollama", this.settings.modelName, this.settings.language) : null;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -754,11 +758,11 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
           ]
         })
       });
-      const content = response.json?.choices?.[0]?.message?.content;
+      const content = openAIChoiceContent(response.json as unknown);
       return typeof content === "string"
         ? parseAnalysisJSON(content, "OpenAI-compatible", this.settings.modelName, this.settings.language)
         : null;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -808,7 +812,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
         ]
       })
     });
-    assertProviderResponseOK(response.status, response.json?.message?.content, this.settings.language);
+    assertProviderResponseOK(response.status, ollamaMessageContent(response.json as unknown), this.settings.language);
   }
 
   async testOpenAICompatibleProvider(): Promise<void> {
@@ -831,7 +835,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
         ]
       })
     });
-    assertProviderResponseOK(response.status, response.json?.choices?.[0]?.message?.content, this.settings.language);
+    assertProviderResponseOK(response.status, openAIChoiceContent(response.json as unknown), this.settings.language);
   }
 
   async copyIOSShortcutShareSheetLink(): Promise<void> {
@@ -858,11 +862,11 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
 
     for (const file of this.app.vault.getMarkdownFiles()) {
       if (!file.path.startsWith(outputPrefix)) continue;
-      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      const category = frontmatter?.category;
+      const frontmatter: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const category = frontmatterRecordValue(frontmatter, "category");
       if (typeof category === "string" && category.trim()) categories.push(category.trim());
 
-      const rawTags = frontmatter?.tags;
+      const rawTags = frontmatterRecordValue(frontmatter, "tags");
       if (Array.isArray(rawTags)) {
         tags.push(...rawTags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()));
       } else if (typeof rawTags === "string") {
@@ -893,7 +897,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
 
     if (existing) {
       if (existing.path !== targetPath) {
-        await this.app.vault.delete(existing);
+        await this.app.fileManager.trashFile(existing);
         return await this.app.vault.create(targetPath, content);
       }
       await this.app.vault.modify(existing, content);
@@ -907,8 +911,8 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     const outputPrefix = `${normalizePath(this.settings.outputFolder)}/`;
     for (const file of this.app.vault.getMarkdownFiles()) {
       if (!file.path.startsWith(outputPrefix)) continue;
-      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      if (frontmatter?.capture_id === captureId || frontmatter?.glint_id === captureId) return file;
+      const frontmatter: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (frontmatterRecordValue(frontmatter, "capture_id") === captureId || frontmatterRecordValue(frontmatter, "glint_id") === captureId) return file;
     }
     return null;
   }
@@ -1031,4 +1035,28 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     }
     return latest;
   }
+}
+
+function frontmatterRecordValue(frontmatter: unknown, key: string): unknown {
+  return isRecord(frontmatter) ? frontmatter[key] : undefined;
+}
+
+function ollamaMessageContent(value: unknown): unknown {
+  if (!isRecord(value)) return undefined;
+  const message = value.message;
+  return isRecord(message) ? message.content : undefined;
+}
+
+function openAIChoiceContent(value: unknown): unknown {
+  if (!isRecord(value)) return undefined;
+  const choices = value.choices;
+  if (!Array.isArray(choices)) return undefined;
+  const first = choices[0];
+  if (!isRecord(first)) return undefined;
+  const message = first.message;
+  return isRecord(message) ? message.content : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

@@ -109,7 +109,7 @@ function readableTextFromElement(element: Element): string {
   const clone = element.cloneNode(true) as Element;
   clone.querySelectorAll("br").forEach((node) => node.replaceWith("\n"));
   clone.querySelectorAll("p, div, section, article, li, h1, h2, h3, h4, h5, h6, blockquote").forEach((node) => {
-    node.append(document.createTextNode("\n"));
+    node.append(activeDocument.createTextNode("\n"));
   });
   return clone.textContent ?? "";
 }

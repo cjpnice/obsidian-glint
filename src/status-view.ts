@@ -118,17 +118,13 @@ export class GlintInboxStatusView extends ItemView {
     });
 
     const retryButton = actions.createEl("button", { cls: "glint-status-button", text: this.plugin.t("view.retryAllFailed") });
-    retryButton.addEventListener("click", async () => {
-      retryButton.disabled = true;
-      await this.plugin.retryFailedInbox();
-      await this.render();
+    retryButton.addEventListener("click", () => {
+      void this.retryAllFailed(retryButton);
     });
 
     const processButton = actions.createEl("button", { cls: "glint-status-button glint-status-button-primary", text: this.plugin.t("view.processNow") });
-    processButton.addEventListener("click", async () => {
-      processButton.disabled = true;
-      await this.plugin.processInbox();
-      await this.render();
+    processButton.addEventListener("click", () => {
+      void this.processNow(processButton);
     });
   }
 
@@ -332,18 +328,14 @@ export class GlintInboxStatusView extends ItemView {
     const actions = meta.createSpan({ cls: "glint-status-row-actions" });
     if (file.error && !file.retryLimitReached) {
       const retryButton = actions.createEl("button", { cls: "glint-status-link-button", text: this.plugin.t("view.retry") });
-      retryButton.addEventListener("click", async () => {
-        retryButton.disabled = true;
-        await this.plugin.retryInboxEntry(file.path);
-        await this.render();
+      retryButton.addEventListener("click", () => {
+        void this.retryEntry(retryButton, file.path);
       });
     }
     if (!file.error && file.processed) {
       const reprocessButton = actions.createEl("button", { cls: "glint-status-link-button", text: this.plugin.t("view.reprocess") });
-      reprocessButton.addEventListener("click", async () => {
-        reprocessButton.disabled = true;
-        await this.plugin.reprocessInboxEntry(file.path);
-        await this.render();
+      reprocessButton.addEventListener("click", () => {
+        void this.reprocessEntry(reprocessButton, file.path);
       });
     }
 
@@ -357,6 +349,42 @@ export class GlintInboxStatusView extends ItemView {
     if (file.error) return file.retryCount ? this.plugin.t("view.statusFailed") : this.plugin.t("view.statusInvalid");
     if (file.processed) return this.plugin.t("view.statusProcessed");
     return this.plugin.t("view.statusPending");
+  }
+
+  private async retryAllFailed(button: HTMLButtonElement): Promise<void> {
+    button.disabled = true;
+    try {
+      await this.plugin.retryFailedInbox();
+    } finally {
+      await this.render();
+    }
+  }
+
+  private async processNow(button: HTMLButtonElement): Promise<void> {
+    button.disabled = true;
+    try {
+      await this.plugin.processInbox();
+    } finally {
+      await this.render();
+    }
+  }
+
+  private async retryEntry(button: HTMLButtonElement, filePath: string): Promise<void> {
+    button.disabled = true;
+    try {
+      await this.plugin.retryInboxEntry(filePath);
+    } finally {
+      await this.render();
+    }
+  }
+
+  private async reprocessEntry(button: HTMLButtonElement, filePath: string): Promise<void> {
+    button.disabled = true;
+    try {
+      await this.plugin.reprocessInboxEntry(filePath);
+    } finally {
+      await this.render();
+    }
   }
 
   private compactPath(value: string): string {
