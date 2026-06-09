@@ -4,6 +4,12 @@ An Obsidian desktop plugin that reads `.glintcapture.json` files from the Shortc
 
 中文：这是一个 Obsidian 桌面插件，用于从 Shortcuts 的 iCloud 收件箱读取 `.glintcapture.json`，自动整理成标题、摘要、要点、分类和标签，并写入 Vault 中的 Markdown 文件。
 
+## Support / 支持
+
+If Glint helps your workflow, you can sponsor the project on Afdian: <https://ifdian.net/a/glint>
+
+如果 Glint 对你有帮助，可以通过爱发电赞助这个项目：<https://ifdian.net/a/glint>
+
 ## What it does
 
 - Processes capture JSON files from the macOS Shortcuts iCloud inbox.
