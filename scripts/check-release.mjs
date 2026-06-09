@@ -20,6 +20,7 @@ if (manifest.version !== pkg.version) fail("manifest.json version must match pac
 if (!manifest.name || !/^[\x20-\x7E]+$/.test(manifest.name)) fail("manifest.name must be non-empty Basic Latin text.");
 if (!manifest.author) fail("manifest.author is required.");
 if (!manifest.description) fail("manifest.description is required.");
+if (/\bobsidian\b/i.test(manifest.description)) fail("manifest.description must not include the word 'Obsidian'.");
 if (!manifest.minAppVersion) fail("manifest.minAppVersion is required.");
 if (typeof manifest.isDesktopOnly !== "boolean") fail("manifest.isDesktopOnly must be a boolean.");
 if (versions[manifest.version] !== manifest.minAppVersion) fail("versions.json must map the current plugin version to minAppVersion.");
