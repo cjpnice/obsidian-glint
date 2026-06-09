@@ -1,7 +1,7 @@
 {
   "id": "glint-capture-organizer",
   "name": "Glint",
-  "version": "0.1.17",
+  "version": "0.2.0",
   "minAppVersion": "1.5.0",
   "description": "Read captures from the Shortcuts iCloud inbox, organize them, and save clean Markdown notes into your Obsidian vault.",
   "author": "CHEN",

@@ -5,8 +5,18 @@ import { VIEW_TYPE_GLINT_INBOX_STATUS } from "./constants";
 import type { InboxEntryStatus, InboxStatusSnapshot } from "./types";
 import { formatDateTime, formatError } from "./utils";
 
+type CaptureFilter = "all" | "pending" | "processed" | "failed";
+
+const FILES_PER_PAGE = 25;
+
 export class GlintInboxStatusView extends ItemView {
   plugin: GlintCaptureOrganizerPlugin;
+  private refreshTimeoutId?: number;
+  private renderInFlight = false;
+  private renderAgainAfterCurrent = false;
+  private captureFilter: CaptureFilter = "all";
+  private captureQuery = "";
+  private capturePage = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: GlintCaptureOrganizerPlugin) {
     super(leaf);
@@ -26,31 +36,68 @@ export class GlintInboxStatusView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    this.registerEvent(this.app.vault.on("create", () => this.requestRender()));
+    this.registerEvent(this.app.vault.on("modify", () => this.requestRender()));
+    this.registerEvent(this.app.vault.on("delete", () => this.requestRender()));
+    this.registerInterval(window.setInterval(() => this.requestRender(), 5_000));
     await this.render();
   }
 
-  async render(): Promise<void> {
-    const container = this.contentEl;
-    container.empty();
-    container.addClass("glint-status-view");
-    container.createDiv({ cls: "glint-status-loading", text: this.plugin.t("view.loading") });
+  async onClose(): Promise<void> {
+    if (this.refreshTimeoutId !== undefined) {
+      window.clearTimeout(this.refreshTimeoutId);
+      this.refreshTimeoutId = undefined;
+    }
+  }
 
+  requestRender(delayMs = 250): void {
+    if (this.refreshTimeoutId !== undefined) {
+      window.clearTimeout(this.refreshTimeoutId);
+    }
+    this.refreshTimeoutId = window.setTimeout(() => {
+      this.refreshTimeoutId = undefined;
+      void this.render(false);
+    }, delayMs);
+  }
+
+  async render(showLoading = true): Promise<void> {
+    if (this.renderInFlight) {
+      this.renderAgainAfterCurrent = true;
+      return;
+    }
+
+    this.renderInFlight = true;
     try {
-      const snapshot = await this.plugin.getInboxStatusSnapshot();
-      container.empty();
-      container.addClass("glint-status-view");
-      this.renderHeader(container, snapshot);
-      this.renderStats(container, snapshot);
-      this.renderDetails(container, snapshot);
-      this.renderDiagnostics(container, snapshot);
-      this.renderFiles(container, snapshot);
-    } catch (error) {
-      container.empty();
-      container.addClass("glint-status-view");
-      const panel = container.createDiv({ cls: "glint-status-panel glint-status-error-panel" });
-      panel.createEl("h3", { text: this.plugin.t("view.error") });
-      panel.createDiv({ cls: "glint-status-error", text: formatError(error) });
-      this.renderActions(panel);
+      const container = this.contentEl;
+      if (showLoading || !container.children.length) {
+        container.empty();
+        container.addClass("glint-status-view");
+        container.createDiv({ cls: "glint-status-loading", text: this.plugin.t("view.loading") });
+      }
+
+      try {
+        const snapshot = await this.plugin.getInboxStatusSnapshot();
+        container.empty();
+        container.addClass("glint-status-view");
+        this.renderHeader(container, snapshot);
+        this.renderStats(container, snapshot);
+        this.renderDetails(container, snapshot);
+        this.renderDiagnostics(container, snapshot);
+        this.renderFiles(container, snapshot);
+      } catch (error) {
+        container.empty();
+        container.addClass("glint-status-view");
+        const panel = container.createDiv({ cls: "glint-status-panel glint-status-error-panel" });
+        panel.createEl("h3", { text: this.plugin.t("view.error") });
+        panel.createDiv({ cls: "glint-status-error", text: formatError(error) });
+        this.renderActions(panel);
+      }
+    } finally {
+      this.renderInFlight = false;
+      if (this.renderAgainAfterCurrent) {
+        this.renderAgainAfterCurrent = false;
+        this.requestRender(50);
+      }
     }
   }
 
@@ -112,8 +159,6 @@ export class GlintInboxStatusView extends ItemView {
     const diagnostics = snapshot.diagnostics;
     const panel = container.createDiv({ cls: "glint-status-panel" });
     panel.createEl("h3", { text: this.plugin.t("view.diagnostics") });
-    this.renderDetail(panel, this.plugin.t("view.inboxExists"), diagnostics.inboxExists ? this.plugin.t("view.enabled") : this.plugin.t("view.disabled"));
-    this.renderDetail(panel, this.plugin.t("view.outputExists"), diagnostics.outputExists ? this.plugin.t("view.enabled") : this.plugin.t("view.disabled"));
     this.renderDetail(
       panel,
       this.plugin.t("view.lastReceived"),
@@ -152,17 +197,115 @@ export class GlintInboxStatusView extends ItemView {
 
   private renderFiles(container: HTMLElement, snapshot: InboxStatusSnapshot): void {
     const panel = container.createDiv({ cls: "glint-status-panel" });
-    panel.createEl("h3", { text: this.plugin.t("view.recentCaptures") });
+    const header = panel.createDiv({ cls: "glint-status-list-header" });
+    header.createEl("h3", { text: this.plugin.t("view.recentCaptures") });
 
     if (!snapshot.files.length) {
       panel.createDiv({ cls: "glint-status-empty", text: this.plugin.t("view.empty") });
       return;
     }
 
+    const controls = panel.createDiv({ cls: "glint-status-list-controls" });
+    this.renderFilterButton(controls, "all", snapshot.total);
+    this.renderFilterButton(controls, "pending", snapshot.pending);
+    this.renderFilterButton(controls, "processed", snapshot.processed);
+    this.renderFilterButton(controls, "failed", snapshot.invalid);
+
+    const search = controls.createEl("input", {
+      cls: "glint-status-search",
+      attr: {
+        type: "search",
+        placeholder: this.plugin.t("view.searchPlaceholder")
+      }
+    });
+    search.value = this.captureQuery;
+    search.addEventListener("input", () => {
+      this.captureQuery = search.value;
+      this.capturePage = 0;
+      void this.render(false);
+    });
+
+    const filtered = this.filteredFiles(snapshot.files);
+    const pageCount = Math.max(1, Math.ceil(filtered.length / FILES_PER_PAGE));
+    this.capturePage = Math.min(this.capturePage, pageCount - 1);
+    const start = this.capturePage * FILES_PER_PAGE;
+    const visible = filtered.slice(start, start + FILES_PER_PAGE);
+    panel.createDiv({
+      cls: "glint-status-list-summary",
+      text: this.plugin.t("view.showingCaptures", {
+        shown: visible.length,
+        total: filtered.length,
+        all: snapshot.total
+      })
+    });
+
+    if (!visible.length) {
+      panel.createDiv({ cls: "glint-status-empty", text: this.plugin.t("view.noMatchingCaptures") });
+      return;
+    }
+
     const list = panel.createDiv({ cls: "glint-status-file-list" });
-    for (const file of snapshot.files) {
+    for (const file of visible) {
       this.renderFileRow(list, file);
     }
+
+    if (pageCount > 1) {
+      this.renderPagination(panel, pageCount);
+    }
+  }
+
+  private renderFilterButton(container: HTMLElement, filter: CaptureFilter, count: number): void {
+    const button = container.createEl("button", {
+      cls: `glint-status-filter ${this.captureFilter === filter ? "is-active" : ""}`,
+      text: `${this.filterLabel(filter)} ${count}`
+    });
+    button.addEventListener("click", () => {
+      this.captureFilter = filter;
+      this.capturePage = 0;
+      void this.render(false);
+    });
+  }
+
+  private filteredFiles(files: InboxEntryStatus[]): InboxEntryStatus[] {
+    const query = this.captureQuery.trim().toLowerCase();
+    return files.filter((file) => {
+      if (this.captureFilter === "pending" && (file.error || file.processed)) return false;
+      if (this.captureFilter === "processed" && (file.error || !file.processed)) return false;
+      if (this.captureFilter === "failed" && !file.error) return false;
+      if (!query) return true;
+      return [file.name, file.title, file.path, file.error, file.processedNotePath]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(query));
+    });
+  }
+
+  private renderPagination(container: HTMLElement, pageCount: number): void {
+    const pagination = container.createDiv({ cls: "glint-status-pagination" });
+    const prev = pagination.createEl("button", { cls: "glint-status-button", text: this.plugin.t("view.previousPage") });
+    prev.disabled = this.capturePage <= 0;
+    prev.addEventListener("click", () => {
+      this.capturePage = Math.max(0, this.capturePage - 1);
+      void this.render(false);
+    });
+
+    pagination.createSpan({
+      cls: "glint-status-page-label",
+      text: this.plugin.t("view.pageLabel", { current: this.capturePage + 1, total: pageCount })
+    });
+
+    const next = pagination.createEl("button", { cls: "glint-status-button", text: this.plugin.t("view.nextPage") });
+    next.disabled = this.capturePage >= pageCount - 1;
+    next.addEventListener("click", () => {
+      this.capturePage = Math.min(pageCount - 1, this.capturePage + 1);
+      void this.render(false);
+    });
+  }
+
+  private filterLabel(filter: CaptureFilter): string {
+    if (filter === "pending") return this.plugin.t("view.pending");
+    if (filter === "processed") return this.plugin.t("view.processed");
+    if (filter === "failed") return this.plugin.t("view.invalid");
+    return this.plugin.t("view.total");
   }
 
   private renderFileRow(container: HTMLElement, file: InboxEntryStatus): void {
@@ -171,12 +314,14 @@ export class GlintInboxStatusView extends ItemView {
     const top = row.createDiv({ cls: "glint-status-file-top" });
     top.createDiv({ cls: "glint-status-file-title", text: file.title || file.name });
     top.createDiv({ cls: "glint-status-file-badge", text: this.statusLabel(file) });
-    row.createDiv({ cls: "glint-status-file-path", text: file.path });
+    const pathEl = row.createDiv({ cls: "glint-status-file-path", text: this.compactPath(file.path) });
+    pathEl.title = file.path;
 
     const meta = row.createDiv({ cls: "glint-status-file-meta" });
     if (file.createdAt) meta.createSpan({ text: `${this.plugin.t("view.createdAt")}: ${formatDateTime(file.createdAt, this.plugin.settings.language)}` });
     if (file.processedAt) meta.createSpan({ text: `${this.plugin.t("view.processedAt")}: ${formatDateTime(file.processedAt, this.plugin.settings.language)}` });
     if (file.retryCount) meta.createSpan({ text: this.plugin.t("view.retryCount", { count: file.retryCount }) });
+    if (file.retryLimitReached) meta.createSpan({ text: this.plugin.t("view.statusRetryLimit") });
     if (file.processedNotePath) {
       const noteButton = meta.createEl("button", { cls: "glint-status-link-button", text: this.plugin.t("view.openNote") });
       noteButton.addEventListener("click", () => {
@@ -185,7 +330,7 @@ export class GlintInboxStatusView extends ItemView {
     }
 
     const actions = meta.createSpan({ cls: "glint-status-row-actions" });
-    if (file.error) {
+    if (file.error && !file.retryLimitReached) {
       const retryButton = actions.createEl("button", { cls: "glint-status-link-button", text: this.plugin.t("view.retry") });
       retryButton.addEventListener("click", async () => {
         retryButton.disabled = true;
@@ -202,13 +347,22 @@ export class GlintInboxStatusView extends ItemView {
       });
     }
 
+    if (file.retryLimitReached) row.createDiv({ cls: "glint-status-warning", text: this.plugin.t("view.retryLimitReached") });
     if (file.urlFetchWarning) row.createDiv({ cls: "glint-status-warning", text: `${this.plugin.t("view.fetchWarning")}: ${file.urlFetchWarning}` });
     if (file.error) row.createDiv({ cls: "glint-status-error", text: `${this.plugin.t("view.error")}: ${file.error}` });
   }
 
   private statusLabel(file: InboxEntryStatus): string {
+    if (file.retryLimitReached) return this.plugin.t("view.statusRetryLimit");
     if (file.error) return file.retryCount ? this.plugin.t("view.statusFailed") : this.plugin.t("view.statusInvalid");
     if (file.processed) return this.plugin.t("view.statusProcessed");
     return this.plugin.t("view.statusPending");
+  }
+
+  private compactPath(value: string): string {
+    const normalized = value.replace(/\\/g, "/");
+    const parts = normalized.split("/");
+    if (parts.length <= 4) return value;
+    return `${parts.slice(0, 2).join("/")}/.../${parts.slice(-2).join("/")}`;
   }
 }

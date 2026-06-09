@@ -91,8 +91,13 @@ export class GlintSettingTab extends PluginSettingTab {
       .setName(this.plugin.t("settings.iosShortcut"))
       .setDesc(this.plugin.t("settings.iosShortcutDesc"))
       .addButton((button) =>
-        button.setButtonText(this.plugin.t("settings.copyShortcutLink")).onClick(() => {
-          void this.plugin.copyIOSShortcutShareLink();
+        button.setButtonText(this.plugin.t("settings.copyShortcutShareSheetURL")).onClick(() => {
+          void this.plugin.copyIOSShortcutShareSheetLink();
+        })
+      )
+      .addButton((button) =>
+        button.setButtonText(this.plugin.t("settings.copyShortcutClipboardURL")).onClick(() => {
+          void this.plugin.copyIOSShortcutClipboardLink();
         })
       );
 

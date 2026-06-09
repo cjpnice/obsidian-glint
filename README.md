@@ -23,7 +23,7 @@ An Obsidian desktop plugin that reads `.glintcapture.json` files from the Shortc
 - Shows URL fetch quality warnings when content looks like a login page, anti-bot page, or is too short.
 - Auto-processing can be switched on or off live from settings.
 - Includes a provider test button for checking Ollama or OpenAI-compatible model settings.
-- Includes a settings button for copying the iOS Shortcut import share link.
+- Includes settings buttons for copying two iOS Shortcuts: one for capturing a URL from the share sheet, and one for reading a URL from the clipboard.
 
 ## 功能
 
@@ -44,7 +44,7 @@ An Obsidian desktop plugin that reads `.glintcapture.json` files from the Shortc
 - URL 抓取疑似登录页、反爬页或内容过短时，会在收件箱状态里明确提示。
 - 自动处理可以在设置中实时打开或关闭。
 - 在分析方式设置中提供测试按钮，用于检查 Ollama 或 OpenAI-compatible 模型配置是否可用。
-- 在设置中提供 iOS 快捷指令分享链接复制按钮，便于在 iPhone 或 iPad 上快速导入。
+- 在设置中提供两个 iOS 快捷指令链接复制按钮：一个用于从共享表单采集 URL，一个用于从剪贴板读取 URL。
 
 ## Default folders
 
@@ -62,6 +62,20 @@ Processed capture JSON files stay in the inbox. Glint marks the original JSON wi
 Important: the inbox can be an external absolute path. The default is the macOS iCloud Shortcuts path, because iPhone Shortcuts writes captures under the Shortcuts iCloud container. Organized Markdown notes are still written inside the current Obsidian vault.
 
 注意：收件箱可以是外部绝对路径。默认使用 macOS 上 Shortcuts 的 iCloud 路径，因为 iPhone 快捷指令会把采集文件写到 Shortcuts 的 iCloud 容器里。整理后的 Markdown 仍然写入当前 Obsidian Vault。
+
+## iOS Shortcuts
+
+Glint provides two Shortcut import links in settings:
+
+- Share sheet URL capture: <https://www.icloud.com/shortcuts/a00904e4a49e45fdabba559d406ca7df>
+- Clipboard URL capture: <https://www.icloud.com/shortcuts/7d763259f8f04570bffb997e0c20f07f>
+
+## iOS 快捷指令
+
+Glint 在设置中提供两个快捷指令导入链接：
+
+- 从共享表单中获取 URL：<https://www.icloud.com/shortcuts/a00904e4a49e45fdabba559d406ca7df>
+- 从剪贴板中获取 URL：<https://www.icloud.com/shortcuts/7d763259f8f04570bffb997e0c20f07f>
 
 ## Analysis providers
 
@@ -107,8 +121,8 @@ This validates the manifest, `versions.json`, required release files, and then c
 ## Official submission checklist
 
 - Commit `README.md`, `LICENSE`, `manifest.json`, `versions.json`, source files, and package files to GitHub.
-- Create a GitHub release whose tag exactly matches the `version` in `manifest.json`, for example `0.1.17`.
+- Create a GitHub release whose tag exactly matches the `version` in `manifest.json`, for example `0.2.0`.
 - Upload `main.js`, `manifest.json`, and `styles.css` from the project root as release assets.
 - Submit the GitHub repository URL at <https://community.obsidian.md>.
 
-If GitHub Actions is enabled, pushing a tag like `0.1.17` automatically builds the plugin and uploads the required release assets.
+If GitHub Actions is enabled, pushing a tag like `0.2.0` automatically builds the plugin and uploads the required release assets.

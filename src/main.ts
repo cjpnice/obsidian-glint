@@ -14,7 +14,7 @@ import {
 } from "obsidian";
 
 import { assertProviderResponseOK, localAnalyze, openAIEndpoint, parseAnalysisJSON, systemPrompt, userPrompt } from "./analysis";
-import { IOS_SHORTCUT_SHARE_URL, VIEW_TYPE_GLINT_INBOX_STATUS } from "./constants";
+import { IOS_SHORTCUT_CLIPBOARD_URL, IOS_SHORTCUT_SHARE_SHEET_URL, MAX_PROCESSING_RETRIES, VIEW_TYPE_GLINT_INBOX_STATUS } from "./constants";
 import { DEFAULT_SETTINGS, LEGACY_DEFAULT_FOLDERS } from "./defaults";
 import { GlintSettingTab } from "./settings-tab";
 import { GlintInboxStatusView } from "./status-view";
@@ -58,6 +58,7 @@ import { createId, defaultCategory, defaultTitle, firstLineTitle, formatError, l
 interface InboxProcessOptions {
   quiet?: boolean;
   force?: boolean;
+  ignoreRetryLimit?: boolean;
 }
 
 interface CaptureSourceMatch {
@@ -193,6 +194,15 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 
+  refreshInboxStatusViews(delayMs = 100): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_GLINT_INBOX_STATUS)) {
+      const view = leaf.view;
+      if (view instanceof GlintInboxStatusView) {
+        view.requestRender(delayMs);
+      }
+    }
+  }
+
   async loadSettings(): Promise<void> {
     const savedSettings = (await this.loadData()) as Partial<GlintSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, savedSettings);
@@ -253,7 +263,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
           ? await this.processExternalInboxFileUnlocked(filePath, { force: true })
           : await this.processVaultPathUnlocked(filePath, { force: true });
       });
-      new Notice(this.t("notice.retryCount", { count: processed ? 1 : 0 }));
+      new Notice(processed ? this.t("notice.retryCount", { count: 1 }) : this.t("notice.retryLimitReached"));
     } catch (error) {
       new Notice(this.t("notice.processFileFailed", { name: path.basename(filePath), error: formatError(error) }));
     }
@@ -263,8 +273,8 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     try {
       const processed = await this.enqueueInboxTask(async () => {
         return isExternalPath(this.settings.inboxFolder)
-          ? await this.processExternalInboxFileUnlocked(filePath, { force: true })
-          : await this.processVaultPathUnlocked(filePath, { force: true });
+          ? await this.processExternalInboxFileUnlocked(filePath, { force: true, ignoreRetryLimit: true })
+          : await this.processVaultPathUnlocked(filePath, { force: true, ignoreRetryLimit: true });
       });
       new Notice(this.t("notice.reprocessedCount", { count: processed ? 1 : 0 }));
     } catch (error) {
@@ -277,7 +287,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
       await this.ensureConfiguredFolders();
       const sourceType = isExternalPath(this.settings.inboxFolder) ? "external" : "vault";
       const files = sourceType === "external" ? await this.readExternalInboxStatus() : await this.readVaultInboxStatus();
-      const failed = files.filter((file) => Boolean(file.error));
+      const failed = files.filter((file) => Boolean(file.error) && !file.retryLimitReached);
       let processed = 0;
       for (const file of failed) {
         try {
@@ -308,8 +318,8 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
 
         const source = await this.findCaptureById(captureId);
         if (source) {
-          if (source.external) await this.processExternalInboxFileUnlocked(source.path, { force: true });
-          else if (source.file) await this.processInboxFileUnlocked(source.file, { force: true });
+          if (source.external) await this.processExternalInboxFileUnlocked(source.path, { force: true, ignoreRetryLimit: true });
+          else if (source.file) await this.processInboxFileUnlocked(source.file, { force: true, ignoreRetryLimit: true });
         } else {
           new Notice(this.t("notice.captureSourceNotFound"));
           const raw = await this.app.vault.cachedRead(view.file);
@@ -339,11 +349,13 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     }
 
     this.queuedInboxTasks += 1;
+    this.refreshInboxStatusViews();
     const run = this.inboxQueue.catch(() => undefined).then(async () => {
       this.queuedInboxTasks = Math.max(0, this.queuedInboxTasks - 1);
       this.isInboxProcessing = true;
       this.lastProcessStartedAt = new Date().toISOString();
       this.lastProcessError = undefined;
+      this.refreshInboxStatusViews();
       try {
         const result = await task();
         this.lastProcessFinishedAt = new Date().toISOString();
@@ -354,6 +366,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
         throw error;
       } finally {
         this.isInboxProcessing = false;
+        this.refreshInboxStatusViews();
       }
     });
 
@@ -397,13 +410,16 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     const parsed = JSON.parse(raw) as GlintCapture;
     const capture = normalizeCapture(options.force ? resetCaptureForReprocess(parsed) : parsed, file.basename);
     if (capture.processed && !options.force) return false;
+    if (!options.ignoreRetryLimit && (parsed.retryCount ?? 0) >= MAX_PROCESSING_RETRIES) return false;
 
     try {
       const result = await this.processCapture(capture);
       await this.app.vault.modify(file, JSON.stringify(markCaptureProcessed(result.capture, result.note.path), null, 2));
+      this.refreshInboxStatusViews();
       return true;
     } catch (error) {
       await this.app.vault.modify(file, JSON.stringify(markCaptureError(capture, error), null, 2));
+      this.refreshInboxStatusViews();
       throw error;
     }
   }
@@ -444,13 +460,16 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     const parsed = JSON.parse(raw) as GlintCapture;
     const capture = normalizeCapture(options.force ? resetCaptureForReprocess(parsed) : parsed, path.basename(filePath, path.extname(filePath)));
     if (capture.processed && !options.force) return false;
+    if (!options.ignoreRetryLimit && (parsed.retryCount ?? 0) >= MAX_PROCESSING_RETRIES) return false;
 
     try {
       const result = await this.processCapture(capture);
       await fs.writeFile(filePath, JSON.stringify(markCaptureProcessed(result.capture, result.note.path), null, 2), "utf8");
+      this.refreshInboxStatusViews();
       return true;
     } catch (error) {
       await fs.writeFile(filePath, JSON.stringify(markCaptureError(capture, error), null, 2), "utf8");
+      this.refreshInboxStatusViews();
       throw error;
     }
   }
@@ -815,12 +834,20 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     assertProviderResponseOK(response.status, response.json?.choices?.[0]?.message?.content, this.settings.language);
   }
 
-  async copyIOSShortcutShareLink(): Promise<void> {
+  async copyIOSShortcutShareSheetLink(): Promise<void> {
+    await this.copyIOSShortcutLink(IOS_SHORTCUT_SHARE_SHEET_URL, this.t("settings.shortcutShareSheetURL"));
+  }
+
+  async copyIOSShortcutClipboardLink(): Promise<void> {
+    await this.copyIOSShortcutLink(IOS_SHORTCUT_CLIPBOARD_URL, this.t("settings.shortcutClipboardURL"));
+  }
+
+  private async copyIOSShortcutLink(url: string, name: string): Promise<void> {
     try {
-      await navigator.clipboard.writeText(IOS_SHORTCUT_SHARE_URL);
-      new Notice(this.t("notice.shortcutLinkCopied"));
+      await navigator.clipboard.writeText(url);
+      new Notice(this.t("notice.shortcutLinkCopied", { name }));
     } catch (error) {
-      new Notice(this.t("notice.shortcutLinkCopyFailed", { error: formatError(error) }));
+      new Notice(this.t("notice.shortcutLinkCopyFailed", { name, error: formatError(error) }));
     }
   }
 

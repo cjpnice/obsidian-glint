@@ -1,4 +1,5 @@
 import type { GlintCapture, InboxEntryStatus } from "./types";
+import { MAX_PROCESSING_RETRIES } from "./constants";
 import { firstHttpUrl } from "./url";
 import { createId, formatError } from "./utils";
 
@@ -60,6 +61,7 @@ export function inboxEntryFromRaw(name: string, filePath: string, raw: string, m
       processedNotePath: capture.processedNotePath,
       error: capture.processingError,
       retryCount: capture.retryCount,
+      retryLimitReached: (capture.retryCount ?? 0) >= MAX_PROCESSING_RETRIES,
       urlFetchWarning: capture.urlFetchWarning,
       urlFetchStatus: capture.urlFetchStatus
     };

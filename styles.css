@@ -166,6 +166,62 @@
   font-size: 15px;
 }
 
+.glint-status-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.glint-status-list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.glint-status-filter {
+  padding: 3px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--background-primary);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.glint-status-filter.is-active {
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+}
+
+.glint-status-search {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 280px;
+}
+
+.glint-status-list-summary {
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.glint-status-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.glint-status-page-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
 .glint-status-detail {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);

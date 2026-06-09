@@ -88,6 +88,7 @@ export interface InboxEntryStatus {
   processedNotePath?: string;
   error?: string;
   retryCount?: number;
+  retryLimitReached?: boolean;
   urlFetchWarning?: string;
   urlFetchStatus?: GlintCapture["urlFetchStatus"];
 }
