@@ -1,4 +1,4 @@
-import { App, FuzzySuggestModal, PluginSettingTab, Setting, TFolder, normalizePath, type SettingDefinitionItem } from "obsidian";
+import { App, FuzzySuggestModal, PluginSettingTab, Setting, TFolder, normalizePath } from "obsidian";
 
 import type GlintCaptureOrganizerPlugin from "./main";
 import type { ProviderType } from "./types";
@@ -13,19 +13,7 @@ export class GlintSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  getSettingDefinitions(): SettingDefinitionItem[] {
-    return [
-      {
-        name: this.plugin.t("settings.title"),
-        searchable: false,
-        render: (setting) => {
-          this.renderSettingsPage(setting.settingEl);
-        }
-      }
-    ];
-  }
-
-  renderLegacySettingsPage(): void {
+  display(): void {
     this.renderSettingsPage(this.containerEl);
   }
 
@@ -254,16 +242,9 @@ export class GlintSettingTab extends PluginSettingTab {
       candidate.update();
       return;
     }
-    this.renderLegacySettingsPage();
+    this.display();
   }
 }
-
-const legacyDisplayMethod = "dis" + "play";
-Object.defineProperty(GlintSettingTab.prototype, legacyDisplayMethod, {
-  value(this: GlintSettingTab): void {
-    this.renderLegacySettingsPage();
-  }
-});
 
 class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
   plugin: GlintCaptureOrganizerPlugin;
