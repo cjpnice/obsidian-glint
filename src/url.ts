@@ -80,6 +80,7 @@ function extractReadableTextWithDOM(html: string): FetchedURLContent | null {
 
   const doc = new DOMParser().parseFromString(html, "text/html");
   const title = extractTitleFromDocument(doc) || extractTitleFromHTML(html);
+  const metadata = extractMetadataFromDocument(doc);
   doc.querySelectorAll("script, style, noscript, svg, iframe, canvas, form, nav, footer").forEach((node) => node.remove());
 
   const preferred = doc.querySelector("#js_content");
@@ -102,7 +103,7 @@ function extractReadableTextWithDOM(html: string): FetchedURLContent | null {
   }
 
   if (!best) return null;
-  return { title, text: best.slice(0, 80_000) };
+  return { title, ...metadata, text: best.slice(0, 80_000) };
 }
 
 function readableTextFromElement(element: Element): string {
@@ -127,6 +128,23 @@ function extractTitleFromDocument(doc: Document): string | undefined {
 
 function metaContent(doc: Document, name: string): string | undefined {
   return doc.querySelector(`meta[property="${name}"], meta[name="${name}"]`)?.getAttribute("content")?.trim() || undefined;
+}
+
+function extractMetadataFromDocument(doc: Document): Omit<FetchedURLContent, "title" | "text"> {
+  return {
+    siteName: metaContent(doc, "og:site_name") || metaContent(doc, "application-name"),
+    author:
+      metaContent(doc, "author") ||
+      metaContent(doc, "article:author") ||
+      doc.querySelector('[rel="author"]')?.textContent?.trim() ||
+      undefined,
+    publishedAt:
+      metaContent(doc, "article:published_time") ||
+      metaContent(doc, "pubdate") ||
+      metaContent(doc, "date") ||
+      doc.querySelector("time[datetime]")?.getAttribute("datetime")?.trim() ||
+      undefined
+  };
 }
 
 function extractTitleFromHTML(html: string): string | undefined {

@@ -2,7 +2,6 @@ import * as fs from "fs/promises";
 import * as path from "path";
 
 import {
-  Editor,
   type EventRef,
   MarkdownView,
   Notice,
@@ -43,22 +42,28 @@ import {
 } from "./taxonomy";
 import type {
   AnalysisResult,
+  CurrentProcessStatus,
   FetchedURLContent,
   GlintCapture,
   GlintSettings,
   InboxDiagnostics,
   InboxEntryStatus,
   InboxStatusSnapshot,
+  ProcessStep,
   ProcessCaptureResult,
   TaxonomyContext
 } from "./types";
 import { assessURLContentQuality, captureText, extractReadableTextFromHTML, shouldFetchURLContent } from "./url";
-import { createId, defaultCategory, defaultTitle, firstLineTitle, formatError, looksLikeUrl, safeFilename } from "./utils";
+import { createId, defaultCategory, defaultTitle, formatError, looksLikeUrl, safeFilename, stableHash } from "./utils";
 
 interface InboxProcessOptions {
   quiet?: boolean;
   force?: boolean;
   ignoreRetryLimit?: boolean;
+}
+
+interface ProcessCaptureOptions {
+  force?: boolean;
 }
 
 interface CaptureSourceMatch {
@@ -78,6 +83,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
   private lastProcessStartedAt?: string;
   private lastProcessFinishedAt?: string;
   private lastProcessError?: string;
+  private currentProcess?: CurrentProcessStatus;
 
   t(key: L10nKey, values: Record<string, string | number> = {}): string {
     return translate(this.settings.language, key, values);
@@ -112,30 +118,6 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
       name: this.t("command.reprocessCurrentNote"),
       callback: () => {
         void this.reprocessCurrentNote();
-      }
-    });
-
-    this.addCommand({
-      id: "capture-current-note",
-      name: this.t("command.captureCurrentNote"),
-      callback: () => {
-        void this.captureCurrentNote();
-      }
-    });
-
-    this.addCommand({
-      id: "capture-selected-text",
-      name: this.t("command.captureSelectedText"),
-      editorCallback: (editor: Editor) => {
-        void this.captureSelectedText(editor);
-      }
-    });
-
-    this.addCommand({
-      id: "capture-clipboard",
-      name: this.t("command.captureClipboard"),
-      callback: () => {
-        void this.captureClipboard();
       }
     });
 
@@ -306,6 +288,17 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     new Notice(count ? this.t("notice.retryCount", { count }) : this.t("notice.noFailedCaptures"));
   }
 
+  async deleteProcessedInboxEntries(): Promise<void> {
+    const count = await this.enqueueInboxTask(async () => {
+      await this.ensureConfiguredFolders();
+      return isExternalPath(this.settings.inboxFolder)
+        ? await this.deleteProcessedExternalInboxEntries()
+        : await this.deleteProcessedVaultInboxEntries();
+    });
+
+    new Notice(count ? this.t("notice.deletedProcessedCount", { count }) : this.t("notice.noProcessedCaptures"));
+  }
+
   async reprocessCurrentNote(): Promise<void> {
     try {
       await this.enqueueInboxTask(async () => {
@@ -330,15 +323,22 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
           const capturedAt = frontmatterRecordValue(frontmatter, "captured");
           const sourceURL = typeof source === "string" ? source : undefined;
           const captured = typeof capturedAt === "string" ? capturedAt : new Date().toISOString();
-          await this.processCapture({
-            id: captureId,
-            title: view.file.basename,
-            originalURL: sourceURL,
-            text: raw,
-            contentType: "markdown",
-            captureMethod: this.t("captureMethod.generatedNote"),
-            createdAt: captured
-          });
+          try {
+            await this.processCapture(
+              {
+                id: captureId,
+                title: view.file.basename,
+                originalURL: sourceURL,
+                text: raw,
+                contentType: "markdown",
+                captureMethod: this.t("captureMethod.generatedNote"),
+                createdAt: captured
+              },
+              { force: true }
+            );
+          } finally {
+            this.clearCurrentProcess();
+          }
         }
       });
       new Notice(this.t("notice.reprocessedCurrentNote"));
@@ -410,21 +410,29 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
   }
 
   private async processInboxFileUnlocked(file: TFile, options: InboxProcessOptions = {}): Promise<boolean> {
-    const raw = await this.app.vault.cachedRead(file);
-    const parsed = JSON.parse(raw) as GlintCapture;
-    const capture = normalizeCapture(options.force ? resetCaptureForReprocess(parsed) : parsed, file.basename);
-    if (capture.processed && !options.force) return false;
-    if (!options.ignoreRetryLimit && (parsed.retryCount ?? 0) >= MAX_PROCESSING_RETRIES) return false;
-
+    let capture: GlintCapture | undefined;
     try {
-      const result = await this.processCapture(capture);
+      this.setCurrentProcessStep("reading", { fileName: file.name, filePath: file.path });
+      const raw = await this.app.vault.cachedRead(file);
+      const parsed = JSON.parse(raw) as GlintCapture;
+      capture = normalizeCapture(options.force ? resetCaptureForReprocess(parsed) : parsed, file.basename);
+      this.setCurrentProcessStep("reading", { title: capture.title });
+      if (capture.processed && !options.force) return false;
+      if (!options.ignoreRetryLimit && (parsed.retryCount ?? 0) >= MAX_PROCESSING_RETRIES) return false;
+
+      const result = await this.processCapture(capture, { force: options.force });
+      this.setCurrentProcessStep("marking-processed");
       await this.app.vault.modify(file, JSON.stringify(markCaptureProcessed(result.capture, result.note.path), null, 2));
       this.refreshInboxStatusViews();
       return true;
     } catch (error) {
-      await this.app.vault.modify(file, JSON.stringify(markCaptureError(capture, error), null, 2));
-      this.refreshInboxStatusViews();
+      if (capture) {
+        await this.app.vault.modify(file, JSON.stringify(markCaptureError(capture, error), null, 2));
+        this.refreshInboxStatusViews();
+      }
       throw error;
+    } finally {
+      this.clearCurrentProcess();
     }
   }
 
@@ -460,22 +468,56 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
   }
 
   private async processExternalInboxFileUnlocked(filePath: string, options: InboxProcessOptions = {}): Promise<boolean> {
-    const raw = await fs.readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as GlintCapture;
-    const capture = normalizeCapture(options.force ? resetCaptureForReprocess(parsed) : parsed, path.basename(filePath, path.extname(filePath)));
-    if (capture.processed && !options.force) return false;
-    if (!options.ignoreRetryLimit && (parsed.retryCount ?? 0) >= MAX_PROCESSING_RETRIES) return false;
-
+    let capture: GlintCapture | undefined;
     try {
-      const result = await this.processCapture(capture);
+      this.setCurrentProcessStep("reading", { fileName: path.basename(filePath), filePath });
+      const raw = await fs.readFile(filePath, "utf8");
+      const parsed = JSON.parse(raw) as GlintCapture;
+      capture = normalizeCapture(options.force ? resetCaptureForReprocess(parsed) : parsed, path.basename(filePath, path.extname(filePath)));
+      this.setCurrentProcessStep("reading", { title: capture.title });
+      if (capture.processed && !options.force) return false;
+      if (!options.ignoreRetryLimit && (parsed.retryCount ?? 0) >= MAX_PROCESSING_RETRIES) return false;
+
+      const result = await this.processCapture(capture, { force: options.force });
+      this.setCurrentProcessStep("marking-processed");
       await fs.writeFile(filePath, JSON.stringify(markCaptureProcessed(result.capture, result.note.path), null, 2), "utf8");
       this.refreshInboxStatusViews();
       return true;
     } catch (error) {
-      await fs.writeFile(filePath, JSON.stringify(markCaptureError(capture, error), null, 2), "utf8");
-      this.refreshInboxStatusViews();
+      if (capture) {
+        await fs.writeFile(filePath, JSON.stringify(markCaptureError(capture, error), null, 2), "utf8");
+        this.refreshInboxStatusViews();
+      }
       throw error;
+    } finally {
+      this.clearCurrentProcess();
     }
+  }
+
+  private async deleteProcessedExternalInboxEntries(): Promise<number> {
+    const files = await this.readExternalInboxStatus();
+    let deleted = 0;
+    for (const file of files) {
+      if (!file.processed || !file.processedNotePath || file.error) continue;
+      await fs.unlink(file.path);
+      deleted += 1;
+    }
+    this.refreshInboxStatusViews();
+    return deleted;
+  }
+
+  private async deleteProcessedVaultInboxEntries(): Promise<number> {
+    const files = await this.readVaultInboxStatus();
+    let deleted = 0;
+    for (const entry of files) {
+      if (!entry.processed || !entry.processedNotePath || entry.error) continue;
+      const file = this.app.vault.getAbstractFileByPath(entry.path);
+      if (!(file instanceof TFile)) continue;
+      await this.app.fileManager.trashFile(file);
+      deleted += 1;
+    }
+    this.refreshInboxStatusViews();
+    return deleted;
   }
 
   async getInboxStatusSnapshot(): Promise<InboxStatusSnapshot> {
@@ -566,83 +608,31 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     return this.t("settings.providerOpenAI");
   }
 
-  async captureCurrentNote(): Promise<void> {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view?.file) {
-      new Notice(this.t("notice.openNoteFirst"));
-      return;
+  async processCapture(capture: GlintCapture, options: ProcessCaptureOptions = {}): Promise<ProcessCaptureResult> {
+    const normalized = this.captureWithContentHash(normalizeCapture(capture));
+    if (this.settings.fetchUrlContent && shouldFetchURLContent(normalized)) {
+      this.setCurrentProcessStep("fetching-url", { title: normalized.title });
     }
-
-    const text = await this.app.vault.cachedRead(view.file);
-    await this.processCapture({
-      id: createId(),
-      title: view.file.basename,
-      text,
-      note: view.file.path,
-      contentType: "markdown",
-      captureMethod: this.t("captureMethod.currentNote"),
-      createdAt: new Date().toISOString()
-    });
-    new Notice(this.t("notice.capturedCurrentNote"));
-  }
-
-  async captureSelectedText(editor: Editor): Promise<void> {
-    const text = editor.getSelection().trim();
-    if (!text) {
-      new Notice(this.t("notice.selectTextFirst"));
-      return;
-    }
-
-    await this.processCapture({
-      id: createId(),
-      title: firstLineTitle(text, this.settings.language),
-      text,
-      contentType: "text",
-      captureMethod: this.t("captureMethod.selection"),
-      createdAt: new Date().toISOString()
-    });
-    new Notice(this.t("notice.capturedSelection"));
-  }
-
-  async captureClipboard(): Promise<void> {
-    try {
-      const text = (await navigator.clipboard.readText()).trim();
-      if (!text) {
-        new Notice(this.t("notice.clipboardEmpty"));
-        return;
-      }
-
-      await this.processCapture({
-        id: createId(),
-        title: looksLikeUrl(text) ? text : firstLineTitle(text, this.settings.language),
-        originalURL: looksLikeUrl(text) ? text : undefined,
-        text: looksLikeUrl(text) ? "" : text,
-        note: looksLikeUrl(text) ? text : undefined,
-        contentType: looksLikeUrl(text) ? "url" : "text",
-        captureMethod: this.t("captureMethod.clipboard"),
-        createdAt: new Date().toISOString()
-      });
-      new Notice(this.t("notice.capturedClipboard"));
-    } catch (error) {
-      new Notice(this.t("notice.clipboardReadFailed", { error: formatError(error) }));
-    }
-  }
-
-  async processCapture(capture: GlintCapture): Promise<ProcessCaptureResult> {
-    const normalized = normalizeCapture(capture);
     const enriched = await this.enrichURLCapture(normalized);
     const text = captureText(enriched);
     if (!text.trim()) {
       throw new Error(this.t("error.noText"));
     }
 
+    const duplicate = await this.findDuplicateNote(enriched);
+    if (duplicate && this.settings.duplicateStrategy === "skip" && !options.force) {
+      return { capture: { ...enriched, processingWarning: this.t("warning.duplicateSkipped") }, note: duplicate };
+    }
+
+    this.setCurrentProcessStep("analyzing", { title: enriched.title });
     const taxonomy = await this.collectTaxonomy();
     let analysis = await this.analyze(enriched, text, taxonomy);
     const taxonomyText = taxonomyReferenceText(enriched.title, enriched.originalURL, text, analysis);
     analysis.tags = chooseTagLabels(analysis.tags, taxonomyText, taxonomy.tags, 10);
     analysis.category = chooseCategoryLabel(analysis.category, taxonomyText, taxonomy.categories, this.settings.language);
-    const note = await this.writeMarkdown(enriched, analysis);
-    return { capture: enriched, note };
+    this.setCurrentProcessStep("writing", { title: analysis.title });
+    const note = await this.writeMarkdown(enriched, analysis, duplicate ?? undefined, options);
+    return { capture: { ...enriched, processingWarning: analysis.fallbackWarning }, note };
   }
 
   async enrichURLCapture(capture: GlintCapture): Promise<GlintCapture> {
@@ -674,6 +664,10 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     return {
       ...capture,
       title: this.bestFetchedTitle(capture, fetched),
+      urlTitle: fetched.title,
+      urlSiteName: fetched.siteName,
+      urlAuthor: fetched.author,
+      urlPublishedAt: fetched.publishedAt,
       text: fetched.title ? `# ${fetched.title}\n\n${fetched.text}` : fetched.text,
       urlFetchStatus: "ok",
       urlFetchWarning: undefined,
@@ -700,12 +694,21 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
 
   async analyze(capture: GlintCapture, text: string, taxonomy: TaxonomyContext): Promise<AnalysisResult> {
     if (this.settings.providerType === "ollama") {
-      return (await this.analyzeWithOllama(capture, text, taxonomy)) ?? localAnalyze(capture, text, taxonomy, this.settings.language);
+      const result = await this.analyzeWithOllama(capture, text, taxonomy);
+      return result ?? this.localFallbackAnalysis(capture, text, taxonomy);
     }
     if (this.settings.providerType === "openai-compatible") {
-      return (await this.analyzeWithOpenAICompatible(capture, text, taxonomy)) ?? localAnalyze(capture, text, taxonomy, this.settings.language);
+      const result = await this.analyzeWithOpenAICompatible(capture, text, taxonomy);
+      return result ?? this.localFallbackAnalysis(capture, text, taxonomy);
     }
     return localAnalyze(capture, text, taxonomy, this.settings.language);
+  }
+
+  private localFallbackAnalysis(capture: GlintCapture, text: string, taxonomy: TaxonomyContext): AnalysisResult {
+    return {
+      ...localAnalyze(capture, text, taxonomy, this.settings.language),
+      fallbackWarning: this.t("warning.providerFallback")
+    };
   }
 
   async analyzeWithOllama(
@@ -880,7 +883,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     };
   }
 
-  async writeMarkdown(capture: GlintCapture, analysis: AnalysisResult): Promise<TFile> {
+  async writeMarkdown(capture: GlintCapture, analysis: AnalysisResult, duplicate?: TFile, options: ProcessCaptureOptions = {}): Promise<TFile> {
     await this.ensureFolder(this.settings.outputFolder);
     const categoryFolder = normalizePath(
       `${this.settings.outputFolder}/${safeFilename(analysis.category || defaultCategory(this.settings.language), this.settings.language)}`
@@ -888,12 +891,19 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     await this.ensureFolder(categoryFolder);
 
     const captureId = capture.id ?? createId();
-    const existing = await this.findExistingNote(captureId);
+    const existing =
+      (await this.findExistingNote(captureId)) ??
+      (this.settings.duplicateStrategy === "update-existing" || options.force ? duplicate : undefined);
     const preferredPath = normalizePath(
       `${categoryFolder}/${safeFilename(analysis.title || capture.title || defaultTitle(this.settings.language), this.settings.language)}-${captureId.slice(0, 8)}.md`
     );
     const targetPath = await this.availablePath(preferredPath, existing?.path);
-    const content = markdownForCapture(capture, analysis, this.settings.language);
+    const content = markdownForCapture(capture, analysis, this.settings.language, {
+      includeSummaryCallout: this.settings.includeSummaryCallout,
+      includeSourceSection: this.settings.includeSourceSection,
+      includeOriginalExcerpt: this.settings.includeOriginalExcerpt,
+      includeUrlMetadata: this.settings.includeUrlMetadata
+    });
 
     if (existing) {
       if (existing.path !== targetPath) {
@@ -913,6 +923,24 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
       if (!file.path.startsWith(outputPrefix)) continue;
       const frontmatter: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter;
       if (frontmatterRecordValue(frontmatter, "capture_id") === captureId || frontmatterRecordValue(frontmatter, "glint_id") === captureId) return file;
+    }
+    return null;
+  }
+
+  async findDuplicateNote(capture: GlintCapture): Promise<TFile | null> {
+    if (this.settings.duplicateStrategy === "create-copy") return null;
+    const outputPrefix = `${normalizePath(this.settings.outputFolder)}/`;
+    const sourceURL = capture.originalURL?.trim();
+    const contentHash = capture.contentHash?.trim();
+    if (!sourceURL && !contentHash) return null;
+
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (!file.path.startsWith(outputPrefix)) continue;
+      const frontmatter: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const existingURL = frontmatterRecordValue(frontmatter, "source");
+      const existingHash = frontmatterRecordValue(frontmatter, "content_hash");
+      if (sourceURL && existingURL === sourceURL) return file;
+      if (contentHash && existingHash === contentHash) return file;
     }
     return null;
   }
@@ -957,6 +985,12 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
     return existingTitle && !looksLikeUrl(existingTitle) ? existingTitle : fetched.title ?? existingTitle;
   }
 
+  private captureWithContentHash(capture: GlintCapture): GlintCapture {
+    if (capture.contentHash?.trim()) return capture;
+    const text = [capture.originalURL, capture.text, capture.note].filter(Boolean).join("\n\n").trim();
+    return text ? { ...capture, contentHash: stableHash(text) } : capture;
+  }
+
   private async findCaptureById(captureId: string): Promise<CaptureSourceMatch | null> {
     if (isExternalPath(this.settings.inboxFolder)) {
       const inboxPath = expandHome(this.settings.inboxFolder);
@@ -995,6 +1029,7 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
       autoProcessRunning: this.autoProcessCreateRef !== undefined || this.autoProcessIntervalId !== undefined,
       isProcessing: this.isInboxProcessing,
       queuedTasks: this.queuedInboxTasks,
+      currentProcess: this.currentProcess,
       lastProcessStartedAt: this.lastProcessStartedAt,
       lastProcessFinishedAt: this.lastProcessFinishedAt,
       lastProcessError: this.lastProcessError,
@@ -1003,6 +1038,25 @@ export default class GlintCaptureOrganizerPlugin extends Plugin {
       lastProviderTestError: this.settings.lastProviderTestError,
       urlWarnings: files.filter((file) => Boolean(file.urlFetchWarning)).length
     };
+  }
+
+  private setCurrentProcessStep(step: ProcessStep, values: Partial<Omit<CurrentProcessStatus, "step" | "startedAt" | "updatedAt">> = {}): void {
+    const now = new Date().toISOString();
+    this.currentProcess = {
+      fileName: values.fileName ?? this.currentProcess?.fileName,
+      filePath: values.filePath ?? this.currentProcess?.filePath,
+      title: values.title ?? this.currentProcess?.title,
+      step,
+      startedAt: this.currentProcess?.startedAt ?? now,
+      updatedAt: now
+    };
+    this.refreshInboxStatusViews(50);
+  }
+
+  private clearCurrentProcess(): void {
+    if (!this.currentProcess) return;
+    this.currentProcess = undefined;
+    this.refreshInboxStatusViews(50);
   }
 
   private async inboxFolderExists(): Promise<boolean> {

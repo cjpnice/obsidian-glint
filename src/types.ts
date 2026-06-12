@@ -2,6 +2,8 @@ import type { TFile } from "obsidian";
 
 export type ProviderType = "local" | "ollama" | "openai-compatible";
 export type AppLanguage = "zh" | "en";
+export type DuplicateStrategy = "update-existing" | "skip" | "create-copy";
+export type ProcessStep = "reading" | "fetching-url" | "analyzing" | "writing" | "marking-processed";
 
 export interface GlintSettings {
   language: AppLanguage;
@@ -9,6 +11,11 @@ export interface GlintSettings {
   outputFolder: string;
   autoProcessInbox: boolean;
   fetchUrlContent: boolean;
+  duplicateStrategy: DuplicateStrategy;
+  includeSummaryCallout: boolean;
+  includeSourceSection: boolean;
+  includeOriginalExcerpt: boolean;
+  includeUrlMetadata: boolean;
   providerType: ProviderType;
   endpointUrl: string;
   modelName: string;
@@ -39,9 +46,14 @@ export interface GlintCapture {
   note?: string;
   attachments?: CaptureAttachment[];
   contentHash?: string;
+  urlTitle?: string;
+  urlSiteName?: string;
+  urlAuthor?: string;
+  urlPublishedAt?: string;
   processed?: boolean;
   processedAt?: string;
   processedNotePath?: string;
+  processingWarning?: string;
   processingError?: string;
   processingErrorAt?: string;
   retryCount?: number;
@@ -65,10 +77,14 @@ export interface AnalysisResult {
   entities: string[];
   providerName: string;
   modelName?: string;
+  fallbackWarning?: string;
 }
 
 export interface FetchedURLContent {
   title?: string;
+  siteName?: string;
+  author?: string;
+  publishedAt?: string;
   text: string;
 }
 
@@ -89,8 +105,18 @@ export interface InboxEntryStatus {
   error?: string;
   retryCount?: number;
   retryLimitReached?: boolean;
+  warning?: string;
   urlFetchWarning?: string;
   urlFetchStatus?: GlintCapture["urlFetchStatus"];
+}
+
+export interface CurrentProcessStatus {
+  fileName?: string;
+  filePath?: string;
+  title?: string;
+  step: ProcessStep;
+  startedAt: string;
+  updatedAt: string;
 }
 
 export interface InboxDiagnostics {
@@ -100,6 +126,7 @@ export interface InboxDiagnostics {
   autoProcessRunning: boolean;
   isProcessing: boolean;
   queuedTasks: number;
+  currentProcess?: CurrentProcessStatus;
   lastProcessStartedAt?: string;
   lastProcessFinishedAt?: string;
   lastProcessError?: string;

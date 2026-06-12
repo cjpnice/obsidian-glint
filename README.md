@@ -13,20 +13,25 @@ If Glint helps your workflow, you can sponsor the project on Afdian: <https://if
 ## What it does
 
 - Processes capture JSON files from the macOS Shortcuts iCloud inbox.
-- Captures selected text, the current note, or clipboard text.
 - Generates a title, category, tags, summary, key points, and entities.
 - Writes a cleaner Obsidian note with a summary callout, key points, structured core note, and source section.
 - Fetches readable page text for URL-only captures when URL content fetching is enabled.
+- Extracts URL metadata such as source title, site name, author, and published time when available.
 - Reuses existing categories and tags found in the output folder.
+- Detects duplicate captures by URL or content fingerprint and can update an existing note, skip, or create a copy.
+- Lets you toggle Markdown sections such as the summary callout, source section, original excerpt, and URL metadata.
 - Writes Markdown with Obsidian-friendly YAML frontmatter.
 - Stores notes in category subfolders so Obsidian's own search, tags, graph, and file explorer can manage them.
 - Supports Chinese and English for settings, notices, Markdown section headings, and model output preference.
 - Folder settings can be typed manually or selected from an in-vault folder picker.
 - Adds a ribbon inbox status view with pending, processed, failed/invalid, diagnostics, and recent capture details.
+- Shows the current processing item and step, including reading, URL fetching, analysis, Markdown writing, and processed marking.
 - Queues manual processing, auto-processing, retries, and reprocessing through one processing lock to avoid duplicate work.
 - Records failed JSON processing errors and offers single-item or bulk retry.
+- Offers bulk cleanup for successfully processed capture JSON files from the inbox status view.
 - Supports one-click reprocessing for processed JSON and a command to reprocess the current generated Glint note.
 - Shows URL fetch quality warnings when content looks like a login page, anti-bot page, or is too short.
+- Shows a warning when a configured model provider fails and Glint falls back to local heuristic organization.
 - Auto-processing can be switched on or off live from settings.
 - Includes a provider test button for checking Ollama or OpenAI-compatible model settings.
 - Includes settings buttons for copying two iOS Shortcuts: one for capturing a URL from the share sheet, and one for reading a URL from the clipboard.
@@ -34,20 +39,25 @@ If Glint helps your workflow, you can sponsor the project on Afdian: <https://if
 ## 功能
 
 - 处理 Shortcuts iCloud 收件箱里的 `.glintcapture.json` 文件。
-- 支持采集当前笔记、选中文本或剪贴板文本。
 - 自动生成标题、分类、标签、摘要、关键要点和实体。
 - 生成更适合 Obsidian 阅读的笔记版式，包括摘要卡片、关键要点、核心内容和来源区块。
 - 当采集内容只有 URL 且开启 URL 正文抓取时，会自动访问网页并提取可读正文。
+- 抓取网页时会尽量提取来源标题、站点、作者和发布时间等 URL 元数据。
 - 会复用输出目录里已有的分类和标签，避免重复标签膨胀。
+- 可通过 URL 或内容指纹识别重复采集，并选择更新已有笔记、跳过或创建副本。
+- 可开关生成笔记中的摘要卡片、来源区块、原文摘录和 URL 元数据。
 - 写入带 YAML frontmatter 的 Obsidian 原生 Markdown。
 - 按分类建立子文件夹，后续直接用 Obsidian 的搜索、标签、图谱和文件管理即可。
 - 支持中文和英文，可在插件设置里切换。
 - 文件夹设置既可以手动输入，也可以通过 Vault 内文件夹选择器直接选择。
 - 增加左侧 ribbon 收件箱状态页，可查看待处理、已处理、失败/异常、诊断和最近采集详情。
+- 状态页会显示当前正在处理的采集和阶段，包括读取、URL 抓取、分析整理、写入笔记和标记完成。
 - 手动处理、自动处理、重试和重新整理会进入同一个处理队列，避免重复整理同一个 JSON。
 - JSON 处理失败时会记录错误原因，并支持单条重试或全部重试。
+- 收件箱状态页支持批量清理已成功处理的采集 JSON。
 - 已处理 JSON 支持一键重新整理；当前已生成 Glint 笔记也可通过命令重新整理。
 - URL 抓取疑似登录页、反爬页或内容过短时，会在收件箱状态里明确提示。
+- 配置的模型接口失败并回退到本地规则整理时，会在生成笔记和收件箱状态里提示。
 - 自动处理可以在设置中实时打开或关闭。
 - 在分析方式设置中提供测试按钮，用于检查 Ollama 或 OpenAI-compatible 模型配置是否可用。
 - 在设置中提供两个 iOS 快捷指令链接复制按钮：一个用于从共享表单采集 URL，一个用于从剪贴板读取 URL。
@@ -61,9 +71,9 @@ Put `.glintcapture.json` files into the Shortcuts inbox, then run **Glint: Proce
 
 把 `.glintcapture.json` 放进 Shortcuts 收件箱，然后运行命令 **Glint: 立即处理 Glint 收件箱**。
 
-Processed capture JSON files stay in the inbox. Glint marks the original JSON with `processed: true`, `processedAt`, and `processedNotePath` after the Markdown note is written. Failed captures keep `processingError`, `processingErrorAt`, and `retryCount` so they can be retried from the inbox status view.
+Processed capture JSON files stay in the inbox. Glint marks the original JSON with `processed: true`, `processedAt`, and `processedNotePath` after the Markdown note is written. Failed captures keep `processingError`, `processingErrorAt`, and `retryCount` so they can be retried from the inbox status view. Successfully processed JSON files can also be cleaned up in bulk from the status view.
 
-已处理的采集 JSON 会留在 Inbox 原位置。Glint 在写入 Markdown 笔记后，会给原 JSON 增加 `processed: true`、`processedAt` 和 `processedNotePath` 字段。失败采集会保留 `processingError`、`processingErrorAt` 和 `retryCount`，可在收件箱状态页重试。
+已处理的采集 JSON 会留在 Inbox 原位置。Glint 在写入 Markdown 笔记后，会给原 JSON 增加 `processed: true`、`processedAt` 和 `processedNotePath` 字段。失败采集会保留 `processingError`、`processingErrorAt` 和 `retryCount`，可在收件箱状态页重试。已成功处理的 JSON 也可以在状态页批量清理。
 
 Important: the inbox can be an external absolute path. The default is the macOS iCloud Shortcuts path, because iPhone Shortcuts writes captures under the Shortcuts iCloud container. Organized Markdown notes are still written inside the current Obsidian vault.
 

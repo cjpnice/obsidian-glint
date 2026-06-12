@@ -122,6 +122,11 @@ export class GlintInboxStatusView extends ItemView {
       void this.retryAllFailed(retryButton);
     });
 
+    const clearButton = actions.createEl("button", { cls: "glint-status-button", text: this.plugin.t("view.clearProcessed") });
+    clearButton.addEventListener("click", () => {
+      void this.clearProcessed(clearButton);
+    });
+
     const processButton = actions.createEl("button", { cls: "glint-status-button glint-status-button-primary", text: this.plugin.t("view.processNow") });
     processButton.addEventListener("click", () => {
       void this.processNow(processButton);
@@ -166,6 +171,7 @@ export class GlintInboxStatusView extends ItemView {
       this.plugin.t("view.processingQueue"),
       `${diagnostics.isProcessing ? this.plugin.t("view.running") : this.plugin.t("view.idle")} / ${this.plugin.t("view.queuedTasks", { count: diagnostics.queuedTasks })}`
     );
+    this.renderDetail(panel, this.plugin.t("view.currentProcess"), this.currentProcessLabel(snapshot));
     this.renderDetail(
       panel,
       this.plugin.t("view.lastRun"),
@@ -183,6 +189,23 @@ export class GlintInboxStatusView extends ItemView {
     const status = diagnostics.lastProviderTestOk ? this.plugin.t("view.success") : this.plugin.t("view.failed");
     const time = formatDateTime(diagnostics.lastProviderTestAt, this.plugin.settings.language);
     return diagnostics.lastProviderTestError ? `${status} / ${time} / ${diagnostics.lastProviderTestError}` : `${status} / ${time}`;
+  }
+
+  private currentProcessLabel(snapshot: InboxStatusSnapshot): string {
+    const current = snapshot.diagnostics.currentProcess;
+    if (!current) return this.plugin.t("view.noCurrentProcess");
+    const subject = current.title || current.fileName || current.filePath || this.plugin.t("view.unknownCapture");
+    const updated = formatDateTime(current.updatedAt, this.plugin.settings.language);
+    return `${this.processStepLabel(current.step)} / ${subject} / ${updated}`;
+  }
+
+  private processStepLabel(step: string): string {
+    if (step === "reading") return this.plugin.t("view.processStepReading");
+    if (step === "fetching-url") return this.plugin.t("view.processStepFetchingUrl");
+    if (step === "analyzing") return this.plugin.t("view.processStepAnalyzing");
+    if (step === "writing") return this.plugin.t("view.processStepWriting");
+    if (step === "marking-processed") return this.plugin.t("view.processStepMarkingProcessed");
+    return step;
   }
 
   private renderDetail(container: HTMLElement, label: string, value: string): void {
@@ -340,6 +363,7 @@ export class GlintInboxStatusView extends ItemView {
     }
 
     if (file.retryLimitReached) row.createDiv({ cls: "glint-status-warning", text: this.plugin.t("view.retryLimitReached") });
+    if (file.warning) row.createDiv({ cls: "glint-status-warning", text: `${this.plugin.t("view.warning")}: ${file.warning}` });
     if (file.urlFetchWarning) row.createDiv({ cls: "glint-status-warning", text: `${this.plugin.t("view.fetchWarning")}: ${file.urlFetchWarning}` });
     if (file.error) row.createDiv({ cls: "glint-status-error", text: `${this.plugin.t("view.error")}: ${file.error}` });
   }
@@ -364,6 +388,15 @@ export class GlintInboxStatusView extends ItemView {
     button.disabled = true;
     try {
       await this.plugin.processInbox();
+    } finally {
+      await this.render();
+    }
+  }
+
+  private async clearProcessed(button: HTMLButtonElement): Promise<void> {
+    button.disabled = true;
+    try {
+      await this.plugin.deleteProcessedInboxEntries();
     } finally {
       await this.render();
     }

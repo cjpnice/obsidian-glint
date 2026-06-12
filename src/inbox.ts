@@ -59,6 +59,7 @@ export function inboxEntryFromRaw(name: string, filePath: string, raw: string, m
       processed: capture.processed === true,
       processedAt: capture.processedAt,
       processedNotePath: capture.processedNotePath,
+      warning: capture.processingWarning,
       error: capture.processingError,
       retryCount: capture.retryCount,
       retryLimitReached: (capture.retryCount ?? 0) >= MAX_PROCESSING_RETRIES,

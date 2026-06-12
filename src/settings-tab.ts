@@ -1,7 +1,7 @@
 import { App, FuzzySuggestModal, PluginSettingTab, Setting, TFolder, normalizePath } from "obsidian";
 
 import type GlintCaptureOrganizerPlugin from "./main";
-import type { ProviderType } from "./types";
+import type { DuplicateStrategy, ProviderType } from "./types";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { normalizeConfiguredPath } from "./paths";
 
@@ -126,6 +126,61 @@ export class GlintSettingTab extends PluginSettingTab {
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.fetchUrlContent).onChange(async (value) => {
           this.plugin.settings.fetchUrlContent = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.duplicateStrategy"))
+      .setDesc(this.plugin.t("settings.duplicateStrategyDesc"))
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("update-existing", this.plugin.t("settings.duplicateUpdate"))
+          .addOption("skip", this.plugin.t("settings.duplicateSkip"))
+          .addOption("create-copy", this.plugin.t("settings.duplicateCopy"))
+          .setValue(this.plugin.settings.duplicateStrategy)
+          .onChange(async (value) => {
+            this.plugin.settings.duplicateStrategy = value as DuplicateStrategy;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.includeSummaryCallout"))
+      .setDesc(this.plugin.t("settings.includeSummaryCalloutDesc"))
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.includeSummaryCallout).onChange(async (value) => {
+          this.plugin.settings.includeSummaryCallout = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.includeSourceSection"))
+      .setDesc(this.plugin.t("settings.includeSourceSectionDesc"))
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.includeSourceSection).onChange(async (value) => {
+          this.plugin.settings.includeSourceSection = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.includeOriginalExcerpt"))
+      .setDesc(this.plugin.t("settings.includeOriginalExcerptDesc"))
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.includeOriginalExcerpt).onChange(async (value) => {
+          this.plugin.settings.includeOriginalExcerpt = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.includeUrlMetadata"))
+      .setDesc(this.plugin.t("settings.includeUrlMetadataDesc"))
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.includeUrlMetadata).onChange(async (value) => {
+          this.plugin.settings.includeUrlMetadata = value;
           await this.plugin.saveSettings();
         })
       );
