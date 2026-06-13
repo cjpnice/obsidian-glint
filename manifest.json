@@ -1,10 +1,10 @@
 {
   "id": "glint-capture-organizer",
   "name": "Glint",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "minAppVersion": "1.8.7",
   "description": "Read captures from the Shortcuts iCloud inbox, organize them, and save clean Markdown notes into your vault.",
   "author": "CHEN",
-  "fundingUrl": "https://ifdian.net/a/glint",
+  "fundingUrl": "https://ifdian.net/a/cjpnice",
   "isDesktopOnly": true
 }

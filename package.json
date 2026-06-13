@@ -1,12 +1,12 @@
 {
   "name": "glint-capture-organizer",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "description": "Desktop plugin for reading Shortcuts captures, organizing them, and writing Markdown.",
   "main": "main.js",
   "funding": {
     "type": "custom",
-    "url": "https://ifdian.net/a/glint"
+    "url": "https://ifdian.net/a/cjpnice"
   },
   "scripts": {
     "dev": "node esbuild.config.mjs",

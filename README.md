@@ -6,9 +6,9 @@ An Obsidian desktop plugin that reads `.glintcapture.json` files from the Shortc
 
 ## Support / 支持
 
-If Glint helps your workflow, you can sponsor the project on Afdian: <https://ifdian.net/a/glint>
+If Glint helps your workflow, you can sponsor the project on Afdian: <https://ifdian.net/a/cjpnice>
 
-如果 Glint 对你有帮助，可以通过爱发电赞助这个项目：<https://ifdian.net/a/glint>
+如果 Glint 对你有帮助，可以通过爱发电赞助这个项目：<https://ifdian.net/a/cjpnice>
 
 ## What it does
 
